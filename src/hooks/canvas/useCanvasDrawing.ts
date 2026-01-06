@@ -37,6 +37,8 @@ export const useCanvasDrawing = (
     const drawingRef = useRef(false);
     const lastPointRef = useRef<{ x: number; y: number } | null>(null);
     const prevPointRef = useRef<{ x: number; y: number } | null>(null);
+    const lastPressureRef = useRef<number>(0.5);
+    const pointCountRef = useRef<number>(0);
 
     const getCanvasPoint = (clientX: number, clientY: number) => {
         const canvas = canvasRef.current;
@@ -66,12 +68,28 @@ export const useCanvasDrawing = (
         drawingRef.current = true;
         lastPointRef.current = point;
         prevPointRef.current = null;
+        lastPressureRef.current = 0.5; // 중간값으로 초기화
+        pointCountRef.current = 0;
 
-        // Draw a single dot for the initial point
+        // Draw a single dot for the initial point with controlled size
         const ctx = ctxRef.current;
+        const isPen = event.pointerType === 'pen';
+        const initialPressure = isPen ? Math.max(event.pressure, 0.3) : 0.5;
+        const initialWidth =
+            isPen && pressureSensitivity.enabled
+                ? calculatePressureWidth(
+                      strokeWidth,
+                      initialPressure,
+                      pressureSensitivity.minScale,
+                      pressureSensitivity.maxScale
+                  )
+                : strokeWidth;
+
         ctx.beginPath();
-        ctx.arc(point.x, point.y, ctx.lineWidth / 2, 0, Math.PI * 2);
+        ctx.arc(point.x, point.y, initialWidth / 2, 0, Math.PI * 2);
         ctx.fill();
+
+        lastPressureRef.current = initialPressure;
 
         onPointerStateChange?.(true);
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -105,14 +123,55 @@ export const useCanvasDrawing = (
                 pointerEvt.pointerType === 'pen' &&
                 pointerEvt.pressure > 0
             ) {
+                pointCountRef.current++;
+                let rawPressure = pointerEvt.pressure;
+
+                // 필압 클램핑: 너무 낮거나 높은 값 방지
+                rawPressure = Math.max(0.1, Math.min(0.95, rawPressure));
+
+                // 필압 스무딩: 이전 필압과 현재 필압의 가중 평균
+                // 처음 몇 포인트는 더 부드럽게 시작
+                const smoothingFactor = pointCountRef.current < 3 ? 0.7 : 0.3;
+                const smoothedPressure =
+                    lastPressureRef.current * smoothingFactor +
+                    rawPressure * (1 - smoothingFactor);
+
+                console.log('🖊️ Pen Pressure Data:', {
+                    pointerType: pointerEvt.pointerType,
+                    rawPressure,
+                    smoothedPressure,
+                    lastPressure: lastPressureRef.current,
+                    pointCount: pointCountRef.current,
+                    tangentialPressure: pointerEvt.tangentialPressure,
+                    tiltX: pointerEvt.tiltX,
+                    tiltY: pointerEvt.tiltY,
+                    baseStrokeWidth: strokeWidth,
+                    minScale: pressureSensitivity.minScale,
+                    maxScale: pressureSensitivity.maxScale,
+                });
+
                 const pressureWidth = calculatePressureWidth(
                     strokeWidth,
-                    pointerEvt.pressure,
+                    smoothedPressure,
                     pressureSensitivity.minScale,
                     pressureSensitivity.maxScale
                 );
+
+                console.log('✏️ Calculated Width:', {
+                    pressureWidth,
+                    smoothedPressure,
+                    rawPressure,
+                });
+
                 ctx.lineWidth = pressureWidth;
+                lastPressureRef.current = smoothedPressure;
             } else {
+                console.log('🖱️ Non-pressure Input:', {
+                    pointerType: pointerEvt.pointerType,
+                    pressure: pointerEvt.pressure,
+                    isEraser,
+                    pressureEnabled: pressureSensitivity.enabled,
+                });
                 // Use base stroke width for mouse/touch or eraser
                 ctx.lineWidth = strokeWidth;
             }
@@ -152,6 +211,8 @@ export const useCanvasDrawing = (
         drawingRef.current = false;
         lastPointRef.current = null;
         prevPointRef.current = null;
+        lastPressureRef.current = 0.5;
+        pointCountRef.current = 0;
         onPointerStateChange?.(false);
         commitSnapshot();
     }, [onPointerStateChange, commitSnapshot]);
