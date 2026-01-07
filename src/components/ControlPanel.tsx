@@ -1,5 +1,6 @@
 import { ExportOptions, Page, ToolType } from '../types/canvas';
 import { useTranslation } from 'react-i18next';
+import { useState, useEffect } from 'react';
 import {
     Sun,
     Moon,
@@ -122,6 +123,35 @@ const ControlPanel = ({
 }: ControlPanelProps) => {
     const { t, i18n } = useTranslation();
 
+    const [localWidth, setLocalWidth] = useState(String(canvasWidth));
+    const [localHeight, setLocalHeight] = useState(String(canvasHeight));
+
+    useEffect(() => {
+        setLocalWidth(String(canvasWidth));
+    }, [canvasWidth]);
+
+    useEffect(() => {
+        setLocalHeight(String(canvasHeight));
+    }, [canvasHeight]);
+
+    const handleWidthBlur = () => {
+        const val = parseInt(localWidth, 10);
+        if (isNaN(val) || val <= 0) {
+            setLocalWidth(String(canvasWidth));
+        } else {
+            onCanvasSizeChange(val, canvasHeight);
+        }
+    };
+
+    const handleHeightBlur = () => {
+        const val = parseInt(localHeight, 10);
+        if (isNaN(val) || val <= 0) {
+            setLocalHeight(String(canvasHeight));
+        } else {
+            onCanvasSizeChange(canvasWidth, val);
+        }
+    };
+
     const handleLanguageToggle = () => {
         const nextLang = i18n.language === 'en' ? 'ko' : 'en';
         i18n.changeLanguage(nextLang);
@@ -169,33 +199,27 @@ const ControlPanel = ({
                 <label className="flex items-center justify-between gap-2 text-xs font-medium text-[var(--text-muted)]">
                     {t('width')}
                     <input
-                        type="number"
-                        value={canvasWidth}
-                        onChange={(e) =>
-                            onCanvasSizeChange(
-                                Number(e.target.value) || 0,
-                                canvasHeight
-                            )
+                        type="text"
+                        value={localWidth}
+                        onChange={(e) => setLocalWidth(e.target.value)}
+                        onBlur={handleWidthBlur}
+                        onKeyDown={(e) =>
+                            e.key === 'Enter' && handleWidthBlur()
                         }
                         className="w-20 rounded border border-[var(--border)] bg-transparent px-2 py-1 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
-                        min={100}
-                        max={3000}
                     />
                 </label>
                 <label className="flex items-center justify-between gap-2 text-xs font-medium text-[var(--text-muted)]">
                     {t('height')}
                     <input
-                        type="number"
-                        value={canvasHeight}
-                        onChange={(e) =>
-                            onCanvasSizeChange(
-                                canvasWidth,
-                                Number(e.target.value) || 0
-                            )
+                        type="text"
+                        value={localHeight}
+                        onChange={(e) => setLocalHeight(e.target.value)}
+                        onBlur={handleHeightBlur}
+                        onKeyDown={(e) =>
+                            e.key === 'Enter' && handleHeightBlur()
                         }
                         className="w-20 rounded border border-[var(--border)] bg-transparent px-2 py-1 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
-                        min={100}
-                        max={3000}
                     />
                 </label>
                 <div className="col-span-2 flex items-center gap-1.5">
