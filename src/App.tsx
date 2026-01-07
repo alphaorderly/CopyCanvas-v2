@@ -162,8 +162,12 @@ const App = () => {
                         const activePage = loadedPages.find(
                             (p) => p.id === validPageId
                         );
+                        const activePageData = storedPages.find(
+                            (p) => p.id === validPageId
+                        );
                         await canvasRef.current.loadFromDataUrl(
-                            activePage?.dataUrl ?? null
+                            activePage?.dataUrl ?? null,
+                            activePageData?.objects
                         );
 
                         // Load history from IndexedDB
@@ -177,11 +181,11 @@ const App = () => {
                         } else {
                             // Initialize history with current snapshot
                             const snapshot = canvasRef.current.getDataUrl();
-                            if (snapshot) {
-                                setHistory([snapshot]);
+                            if (snapshot.dataUrl) {
+                                setHistory([snapshot.dataUrl]);
                                 await IndexedDBManager.saveHistory(
                                     validPageId,
-                                    snapshot,
+                                    snapshot.dataUrl,
                                     0
                                 );
                             }
@@ -202,21 +206,23 @@ const App = () => {
                         id: defaultPage.id,
                         name: defaultPage.name,
                         dataUrl: null,
+                        objects: '[]',
                     });
 
                     // Initialize canvas
                     if (canvasRef.current) {
                         const snapshot = canvasRef.current.getDataUrl();
-                        if (snapshot) {
-                            setHistory([snapshot]);
+                        if (snapshot.dataUrl) {
+                            setHistory([snapshot.dataUrl]);
                             await IndexedDBManager.savePage({
                                 id: defaultPage.id,
                                 name: defaultPage.name,
-                                dataUrl: snapshot,
+                                dataUrl: snapshot.dataUrl,
+                                objects: snapshot.objects,
                             });
                             await IndexedDBManager.saveHistory(
                                 defaultPage.id,
-                                snapshot,
+                                snapshot.dataUrl,
                                 0
                             );
                         }
@@ -265,11 +271,13 @@ const App = () => {
             // Save to IndexedDB
             try {
                 const currentPage = pages.find((p) => p.id === activePageId);
-                if (currentPage) {
+                if (currentPage && canvasRef.current) {
+                    const snapshot = canvasRef.current.getDataUrl();
                     await IndexedDBManager.savePage({
                         id: currentPage.id,
                         name: currentPage.name,
-                        dataUrl,
+                        dataUrl: snapshot.dataUrl,
+                        objects: snapshot.objects,
                     });
                     // Save history entry
                     await IndexedDBManager.saveHistory(
@@ -304,7 +312,16 @@ const App = () => {
         const target = nextHistory[nextHistory.length - 1] ?? null;
         setHistory(nextHistory);
         setRedoStack((prev) => [nextRedo, ...prev].slice(0, 50));
-        await canvasRef.current.loadFromDataUrl(target);
+
+        // Load from IndexedDB to get objects
+        try {
+            const pageData = await IndexedDBManager.getPage(activePageId);
+            await canvasRef.current.loadFromDataUrl(target, pageData?.objects);
+        } catch (error) {
+            console.error('Failed to load undo state:', error);
+            await canvasRef.current.loadFromDataUrl(target);
+        }
+
         setPages((prev) =>
             prev.map((page) =>
                 page.id === activePageId ? { ...page, dataUrl: target } : page
@@ -314,11 +331,13 @@ const App = () => {
         // Save updated page to IndexedDB
         try {
             const currentPage = pages.find((p) => p.id === activePageId);
+            const snapshot = canvasRef.current.getDataUrl();
             if (currentPage) {
                 await IndexedDBManager.savePage({
                     id: currentPage.id,
                     name: currentPage.name,
                     dataUrl: target,
+                    objects: snapshot.objects,
                 });
             }
         } catch (error) {
@@ -329,7 +348,16 @@ const App = () => {
     const handleRedo = useCallback(async () => {
         if (!canvasRef.current || redoStack.length === 0) return;
         const [next, ...rest] = redoStack;
-        await canvasRef.current.loadFromDataUrl(next);
+
+        // Load from IndexedDB to get objects
+        try {
+            const pageData = await IndexedDBManager.getPage(activePageId);
+            await canvasRef.current.loadFromDataUrl(next, pageData?.objects);
+        } catch (error) {
+            console.error('Failed to load redo state:', error);
+            await canvasRef.current.loadFromDataUrl(next);
+        }
+
         setHistory((prev) => [...prev, next].slice(-50));
         setRedoStack(rest);
         setPages((prev) =>
@@ -341,11 +369,13 @@ const App = () => {
         // Save updated page to IndexedDB
         try {
             const currentPage = pages.find((p) => p.id === activePageId);
+            const snapshot = canvasRef.current.getDataUrl();
             if (currentPage) {
                 await IndexedDBManager.savePage({
                     id: currentPage.id,
                     name: currentPage.name,
                     dataUrl: next,
+                    objects: snapshot.objects,
                 });
             }
         } catch (error) {
@@ -382,7 +412,8 @@ const App = () => {
                     nextHeight
                 );
                 const snapshot = canvasRef.current.getDataUrl();
-                if (snapshot) pushSnapshot(snapshot, { copy: false });
+                if (snapshot.dataUrl)
+                    pushSnapshot(snapshot.dataUrl, { copy: false });
             }
         },
         [pushSnapshot]
@@ -395,11 +426,11 @@ const App = () => {
                 return;
             }
             const currentSnapshot = canvasRef.current.getDataUrl();
-            if (currentSnapshot) {
+            if (currentSnapshot.dataUrl) {
                 setPages((prev) =>
                     prev.map((page) =>
                         page.id === activePageId
-                            ? { ...page, dataUrl: currentSnapshot }
+                            ? { ...page, dataUrl: currentSnapshot.dataUrl }
                             : page
                     )
                 );
@@ -413,7 +444,8 @@ const App = () => {
                         await IndexedDBManager.savePage({
                             id: currentPage.id,
                             name: currentPage.name,
-                            dataUrl: currentSnapshot,
+                            dataUrl: currentSnapshot.dataUrl,
+                            objects: currentSnapshot.objects,
                         });
                     }
                 } catch (error) {
@@ -426,7 +458,20 @@ const App = () => {
             setActivePageId(pageId);
             suppressCopyRef.current = true;
             const nextPage = pages.find((page) => page.id === pageId);
-            await canvasRef.current.loadFromDataUrl(nextPage?.dataUrl ?? null);
+
+            // Load page data from IndexedDB to get objects
+            try {
+                const pageData = await IndexedDBManager.getPage(pageId);
+                await canvasRef.current.loadFromDataUrl(
+                    nextPage?.dataUrl ?? null,
+                    pageData?.objects
+                );
+            } catch (error) {
+                console.error('Failed to load page from IndexedDB:', error);
+                await canvasRef.current.loadFromDataUrl(
+                    nextPage?.dataUrl ?? null
+                );
+            }
 
             // Load history for the new page
             try {
@@ -439,16 +484,20 @@ const App = () => {
                     setHistory(historyUrls);
                 } else {
                     const snapshot = canvasRef.current.getDataUrl();
-                    if (snapshot) {
-                        setHistory([snapshot]);
-                        await IndexedDBManager.saveHistory(pageId, snapshot, 0);
+                    if (snapshot.dataUrl) {
+                        setHistory([snapshot.dataUrl]);
+                        await IndexedDBManager.saveHistory(
+                            pageId,
+                            snapshot.dataUrl,
+                            0
+                        );
                     }
                 }
             } catch (error) {
                 console.error('Failed to load history from IndexedDB:', error);
                 const snapshot = canvasRef.current.getDataUrl();
-                if (snapshot) {
-                    setHistory([snapshot]);
+                if (snapshot.dataUrl) {
+                    setHistory([snapshot.dataUrl]);
                 }
             }
             setRedoStack([]);
@@ -459,11 +508,11 @@ const App = () => {
     const handleAddPage = useCallback(async () => {
         if (!canvasRef.current) return;
         const snapshot = canvasRef.current.getDataUrl();
-        if (snapshot) {
+        if (snapshot.dataUrl) {
             setPages((prev) =>
                 prev.map((page) =>
                     page.id === activePageId
-                        ? { ...page, dataUrl: snapshot }
+                        ? { ...page, dataUrl: snapshot.dataUrl }
                         : page
                 )
             );
@@ -475,7 +524,8 @@ const App = () => {
                     await IndexedDBManager.savePage({
                         id: currentPage.id,
                         name: currentPage.name,
-                        dataUrl: snapshot,
+                        dataUrl: snapshot.dataUrl,
+                        objects: snapshot.objects,
                     });
                 }
             } catch (error) {
@@ -495,8 +545,8 @@ const App = () => {
         suppressCopyRef.current = true;
         await canvasRef.current.loadFromDataUrl(null);
         const fresh = canvasRef.current.getDataUrl();
-        if (fresh) {
-            setHistory([fresh]);
+        if (fresh.dataUrl) {
+            setHistory([fresh.dataUrl]);
             setRedoStack([]);
 
             // Save new page to IndexedDB
@@ -504,9 +554,14 @@ const App = () => {
                 await IndexedDBManager.savePage({
                     id: newPage.id,
                     name: newPage.name,
-                    dataUrl: fresh,
+                    dataUrl: fresh.dataUrl,
+                    objects: fresh.objects,
                 });
-                await IndexedDBManager.saveHistory(newPage.id, fresh, 0);
+                await IndexedDBManager.saveHistory(
+                    newPage.id,
+                    fresh.dataUrl,
+                    0
+                );
             } catch (error) {
                 console.error('Failed to save new page to IndexedDB:', error);
             }
@@ -516,7 +571,7 @@ const App = () => {
     const handleDuplicatePage = useCallback(async () => {
         if (!canvasRef.current || !activePage) return;
         const snapshot = canvasRef.current.getDataUrl();
-        const source = snapshot ?? activePage.dataUrl ?? null;
+        const source = snapshot.dataUrl ?? activePage.dataUrl ?? null;
         const duplicate: Page = {
             id: makePageId(),
             name: `${activePage.name} ${t('pageCopy')}`,
@@ -525,10 +580,10 @@ const App = () => {
         setPages((prev) => [...prev, duplicate]);
         setActivePageId(duplicate.id);
         suppressCopyRef.current = true;
-        await canvasRef.current.loadFromDataUrl(source);
+        await canvasRef.current.loadFromDataUrl(source, snapshot.objects);
         const fresh = canvasRef.current.getDataUrl();
-        if (fresh) {
-            setHistory([fresh]);
+        if (fresh.dataUrl) {
+            setHistory([fresh.dataUrl]);
             setRedoStack([]);
 
             // Save duplicated page to IndexedDB
@@ -536,9 +591,14 @@ const App = () => {
                 await IndexedDBManager.savePage({
                     id: duplicate.id,
                     name: duplicate.name,
-                    dataUrl: fresh,
+                    dataUrl: fresh.dataUrl,
+                    objects: fresh.objects,
                 });
-                await IndexedDBManager.saveHistory(duplicate.id, fresh, 0);
+                await IndexedDBManager.saveHistory(
+                    duplicate.id,
+                    fresh.dataUrl,
+                    0
+                );
             } catch (error) {
                 console.error(
                     'Failed to save duplicated page to IndexedDB:',
@@ -564,10 +624,22 @@ const App = () => {
 
         if (canvasRef.current) {
             suppressCopyRef.current = true;
-            await canvasRef.current.loadFromDataUrl(nextActive.dataUrl ?? null);
+            // Load page data from IndexedDB to get objects
+            try {
+                const pageData = await IndexedDBManager.getPage(nextActive.id);
+                await canvasRef.current.loadFromDataUrl(
+                    nextActive.dataUrl ?? null,
+                    pageData?.objects
+                );
+            } catch (error) {
+                console.error('Failed to load next page:', error);
+                await canvasRef.current.loadFromDataUrl(
+                    nextActive.dataUrl ?? null
+                );
+            }
             const snapshot = canvasRef.current.getDataUrl();
-            if (snapshot) {
-                setHistory([snapshot]);
+            if (snapshot.dataUrl) {
+                setHistory([snapshot.dataUrl]);
                 setRedoStack([]);
             }
         }

@@ -1,7 +1,12 @@
-import { forwardRef, useImperativeHandle, useCallback, useRef } from 'react';
+import {
+    forwardRef,
+    useImperativeHandle,
+    useCallback,
+    useRef,
+    useEffect,
+} from 'react';
 import {
     CanvasHandle,
-    DrawObject,
     PressureSensitivityOptions,
     ToolType,
     Point,
@@ -13,6 +18,7 @@ import { useCanvasExport } from '../hooks/canvas/useCanvasExport';
 import { useCanvasResize } from '../hooks/canvas/useCanvasResize';
 import { useCanvasCursor } from '../hooks/canvas/useCanvasCursor';
 import { useCanvasObjects } from '../hooks/canvas/useCanvasObjects';
+import { useCanvasShapes } from '../hooks/canvas/useCanvasShapes';
 
 type Props = {
     width: number;
@@ -42,12 +48,7 @@ const CanvasBoard = forwardRef<CanvasHandle, Props>((props, ref) => {
     } = props;
 
     const isEraser = activeTool.startsWith('eraser');
-    const isShape =
-        activeTool === 'line' ||
-        activeTool === 'rectangle' ||
-        activeTool === 'circle';
     const drawingRef = useRef(false);
-    const shapeStartRef = useRef<Point | null>(null);
     const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
 
     // Initialize canvas context and styling
@@ -59,8 +60,9 @@ const CanvasBoard = forwardRef<CanvasHandle, Props>((props, ref) => {
         isEraser,
     });
 
-    // Object management for object-based erasing
+    // Object management
     const {
+        objects,
         startObject,
         updateObject,
         commitObject,
@@ -69,6 +71,8 @@ const CanvasBoard = forwardRef<CanvasHandle, Props>((props, ref) => {
         renderObjects,
         clearObjects,
         getCurrentObject,
+        serializeObjects,
+        deserializeObjects,
     } = useCanvasObjects();
 
     const getCanvasPoint = useCallback(
@@ -86,212 +90,89 @@ const CanvasBoard = forwardRef<CanvasHandle, Props>((props, ref) => {
         [canvasRef]
     );
 
+    const onCommitRef = useRef(onCommit);
+
+    useEffect(() => {
+        onCommitRef.current = onCommit;
+    }, [onCommit]);
+
     const commitSnapshot = useCallback(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
         const dataUrl = canvas.toDataURL('image/png');
-        onCommit?.(dataUrl);
-    }, [canvasRef, onCommit]);
+        onCommitRef.current?.(dataUrl);
+    }, [canvasRef]);
 
-    // Custom pointer handlers for shapes and object erasing
-    const handlePointerDownCustom = useCallback(
+    // Redraw canvas when objects change
+    useEffect(() => {
+        const ctx = ctxRef.current;
+        if (!ctx) return;
+
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        renderObjects(ctx, false);
+
+        // We only commit snapshot if this wasn't a mid-drawing update
+        // But objects only change on commit, cancellation, or delete.
+        // So it is safe to commit snapshot here to keep persisted PNG in sync.
+        commitSnapshot();
+    }, [objects, renderObjects, commitSnapshot, ctxRef]);
+
+    // Shape handling
+    const {
+        handlePointerDownShape,
+        handlePointerMoveShape,
+        handlePointerUpShape,
+    } = useCanvasShapes({
+        activeTool,
+        strokeColor,
+        strokeWidth,
+        getCanvasPoint,
+        startObject,
+        updateObject,
+        commitObject,
+        getCurrentObject,
+        onPointerStateChange,
+        commitSnapshot,
+        overlayCanvasRef,
+        ctxRef,
+    });
+
+    // Object Eraser Handler
+    const eraseObjectAtPoint = useCallback(
+        (point: Point) => {
+            const objectToRemove = findObjectAt(point);
+            if (objectToRemove) {
+                removeObjectById(objectToRemove.id);
+            }
+        },
+        [findObjectAt, removeObjectById]
+    );
+
+    const handlePointerDownEraserObject = useCallback(
         (event: React.PointerEvent<HTMLCanvasElement>) => {
             const point = getCanvasPoint(event.clientX, event.clientY);
-            if (!point || !ctxRef.current) return;
+            if (!point) return;
 
             drawingRef.current = true;
             event.currentTarget.setPointerCapture(event.pointerId);
-
-            if (activeTool === 'eraser-object') {
-                const objectToRemove = findObjectAt(point);
-                if (objectToRemove) {
-                    removeObjectById(objectToRemove.id);
-                    // Redraw canvas
-                    const ctx = ctxRef.current;
-                    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-                    renderObjects(ctx, false);
-                    commitSnapshot();
-                }
-                drawingRef.current = false;
-            } else if (isShape) {
-                shapeStartRef.current = point;
-                startObject(
-                    activeTool as DrawObject['type'],
-                    point,
-                    strokeColor,
-                    strokeWidth
-                );
-            }
-
-            onPointerStateChange?.(true);
+            eraseObjectAtPoint(point);
         },
-        [
-            activeTool,
-            getCanvasPoint,
-            ctxRef,
-            findObjectAt,
-            removeObjectById,
-            renderObjects,
-            commitSnapshot,
-            onPointerStateChange,
-            isShape,
-            startObject,
-            strokeColor,
-            strokeWidth,
-        ]
+        [getCanvasPoint, eraseObjectAtPoint]
     );
 
-    const handlePointerMoveCustom = useCallback(
+    const handlePointerMoveEraserObject = useCallback(
         (event: React.PointerEvent<HTMLCanvasElement>) => {
-            if (!drawingRef.current || !isShape || !shapeStartRef.current)
-                return;
+            if (!drawingRef.current) return;
 
             const point = getCanvasPoint(event.clientX, event.clientY);
             if (!point) return;
 
-            updateObject(point);
-
-            // Draw preview on overlay canvas
-            const overlayCanvas = overlayCanvasRef.current;
-            const mainCanvas = canvasRef.current;
-            if (!overlayCanvas || !mainCanvas) return;
-
-            const overlayCtx = overlayCanvas.getContext('2d');
-            if (!overlayCtx) return;
-
-            // Clear overlay
-            overlayCtx.clearRect(
-                0,
-                0,
-                overlayCanvas.width,
-                overlayCanvas.height
-            );
-
-            // Draw current object preview
-            const currentObj = getCurrentObject();
-            if (!currentObj) return;
-
-            overlayCtx.strokeStyle = strokeColor;
-            overlayCtx.fillStyle = strokeColor;
-            overlayCtx.lineWidth = strokeWidth;
-            overlayCtx.lineCap = 'round';
-            overlayCtx.lineJoin = 'round';
-
-            const start = shapeStartRef.current;
-
-            if (activeTool === 'line') {
-                overlayCtx.beginPath();
-                overlayCtx.moveTo(start.x, start.y);
-                overlayCtx.lineTo(point.x, point.y);
-                overlayCtx.stroke();
-            } else if (activeTool === 'rectangle') {
-                const x = Math.min(start.x, point.x);
-                const y = Math.min(start.y, point.y);
-                const w = Math.abs(point.x - start.x);
-                const h = Math.abs(point.y - start.y);
-                overlayCtx.beginPath();
-                overlayCtx.rect(x, y, w, h);
-                overlayCtx.stroke();
-            } else if (activeTool === 'circle') {
-                const radius = Math.sqrt(
-                    Math.pow(point.x - start.x, 2) +
-                        Math.pow(point.y - start.y, 2)
-                );
-                overlayCtx.beginPath();
-                overlayCtx.arc(start.x, start.y, radius, 0, Math.PI * 2);
-                overlayCtx.stroke();
-            }
+            eraseObjectAtPoint(point);
         },
-        [
-            isShape,
-            getCanvasPoint,
-            updateObject,
-            getCurrentObject,
-            activeTool,
-            strokeColor,
-            strokeWidth,
-            canvasRef,
-        ]
+        [getCanvasPoint, eraseObjectAtPoint]
     );
 
-    const handlePointerUpCustom = useCallback(() => {
-        if (!drawingRef.current) return;
-        drawingRef.current = false;
-        shapeStartRef.current = null;
-
-        if (isShape) {
-            // Get the current object before committing
-            const currentObj = getCurrentObject();
-
-            // Commit the object to the objects array
-            commitObject();
-
-            // Clear overlay
-            const overlayCanvas = overlayCanvasRef.current;
-            if (overlayCanvas) {
-                const overlayCtx = overlayCanvas.getContext('2d');
-                overlayCtx?.clearRect(
-                    0,
-                    0,
-                    overlayCanvas.width,
-                    overlayCanvas.height
-                );
-            }
-
-            // Draw the completed shape directly on the main canvas (without clearing it)
-            const ctx = ctxRef.current;
-            if (ctx && currentObj && currentObj.points.length >= 2) {
-                ctx.strokeStyle = currentObj.color;
-                ctx.fillStyle = currentObj.color;
-                ctx.lineWidth = currentObj.width;
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
-
-                const [p1, p2] = currentObj.points;
-
-                if (currentObj.type === 'line') {
-                    ctx.beginPath();
-                    ctx.moveTo(p1.x, p1.y);
-                    ctx.lineTo(p2.x, p2.y);
-                    ctx.stroke();
-                } else if (currentObj.type === 'rectangle') {
-                    const x = Math.min(p1.x, p2.x);
-                    const y = Math.min(p1.y, p2.y);
-                    const w = Math.abs(p2.x - p1.x);
-                    const h = Math.abs(p2.y - p1.y);
-                    ctx.beginPath();
-                    ctx.rect(x, y, w, h);
-                    if (currentObj.fill) {
-                        ctx.fill();
-                    }
-                    ctx.stroke();
-                } else if (currentObj.type === 'circle') {
-                    const radius = Math.sqrt(
-                        Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2)
-                    );
-                    ctx.beginPath();
-                    ctx.arc(p1.x, p1.y, radius, 0, Math.PI * 2);
-                    if (currentObj.fill) {
-                        ctx.fill();
-                    }
-                    ctx.stroke();
-                }
-
-                commitSnapshot();
-            }
-        }
-
-        onPointerStateChange?.(false);
-    }, [
-        isShape,
-        getCurrentObject,
-        commitObject,
-        commitSnapshot,
-        onPointerStateChange,
-        ctxRef,
-    ]);
-
-    // Handle drawing operations with pressure sensitivity (for brush and normal eraser)
+    // Drawing handlers (Freehand & Normal Eraser)
     const { handlePointerDown, handlePointerMove, handlePointerUp } =
         useCanvasDrawing({
             canvasRef,
@@ -301,23 +182,50 @@ const CanvasBoard = forwardRef<CanvasHandle, Props>((props, ref) => {
             onCommit,
             onPointerStateChange,
             pressureSensitivity,
+            strokeColor,
+            onStartStroke: startObject,
+            onUpdateStroke: updateObject,
+            onCommitStroke: commitObject,
         });
 
-    // Determine which handlers to use
-    const pointerDownHandler =
-        activeTool === 'eraser-object' || isShape
-            ? handlePointerDownCustom
-            : handlePointerDown;
-    const pointerMoveHandler = isShape
-        ? handlePointerMoveCustom
-        : handlePointerMove;
-    const pointerUpHandler =
-        activeTool === 'eraser-object' || isShape
-            ? handlePointerUpCustom
-            : handlePointerUp;
+    // Unified Event Routing
+    const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        if (activeTool === 'eraser-object') {
+            handlePointerDownEraserObject(e);
+        } else if (['line', 'rectangle', 'circle'].includes(activeTool)) {
+            handlePointerDownShape(e);
+        } else {
+            handlePointerDown(e);
+        }
+    };
+
+    const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        if (activeTool === 'eraser-object') {
+            handlePointerMoveEraserObject(e);
+        } else if (['line', 'rectangle', 'circle'].includes(activeTool)) {
+            handlePointerMoveShape(e);
+        } else {
+            handlePointerMove(e);
+        }
+        // Cursor handling is separate
+    };
+
+    const onPointerUp = () => {
+        drawingRef.current = false;
+
+        if (['line', 'rectangle', 'circle'].includes(activeTool)) {
+            handlePointerUpShape();
+        } else if (activeTool !== 'eraser-object') {
+            handlePointerUp(); // This handles commitSnapshot
+        }
+    };
 
     // Handle image loading and clearing
-    const { getDataUrl, loadFromDataUrl, clear } = useCanvasImage({
+    const {
+        getDataUrl,
+        loadFromDataUrl: loadPixels,
+        clear: clearPixels,
+    } = useCanvasImage({
         canvasRef,
         ctxRef,
         onCommit,
@@ -351,17 +259,36 @@ const CanvasBoard = forwardRef<CanvasHandle, Props>((props, ref) => {
 
     // Expose imperative handle methods
     useImperativeHandle(ref, () => ({
-        getDataUrl,
-        loadFromDataUrl: async (dataUrl: string | null) => {
-            clearObjects();
-            await loadFromDataUrl(dataUrl);
+        getDataUrl: () => {
+            return {
+                dataUrl: getDataUrl(),
+                objects: serializeObjects(),
+            };
+        },
+        loadFromDataUrl: async (
+            dataUrl: string | null,
+            objectsJson?: string
+        ) => {
+            if (objectsJson) {
+                // If we have vector data, prefer it for source of truth
+                deserializeObjects(objectsJson);
+                // Note: deserializeObjects sets state, which triggers useEffect -> renderObjects
+                // We do NOT load pixels if we have objects, to prevent "ghost objects"
+            } else if (dataUrl) {
+                // Fallback: Only pixels available (legacy data)
+                clearObjects();
+                await loadPixels(dataUrl);
+            } else {
+                clearObjects();
+                await clearPixels();
+            }
         },
         exportImage,
         copyToClipboard,
         resizeAndMaintain,
         clear: async () => {
             clearObjects();
-            await clear();
+            await clearPixels();
         },
     }));
 
@@ -375,12 +302,12 @@ const CanvasBoard = forwardRef<CanvasHandle, Props>((props, ref) => {
                         ? 'transparent'
                         : backgroundColor,
                 }}
-                onPointerDown={pointerDownHandler}
+                onPointerDown={onPointerDown}
                 onPointerMove={(e) => {
-                    pointerMoveHandler(e);
+                    onPointerMove(e);
                     handleCursorMove(e);
                 }}
-                onPointerUp={pointerUpHandler}
+                onPointerUp={onPointerUp}
                 onPointerEnter={handleCursorEnter}
                 onPointerLeave={handleCursorLeave}
             />

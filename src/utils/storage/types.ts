@@ -53,6 +53,7 @@ export interface PageData {
     id: string;
     name: string;
     dataUrl: string | null;
+    objects?: string; // JSON stringified DrawObject[]
     createdAt: number;
     updatedAt: number;
 }

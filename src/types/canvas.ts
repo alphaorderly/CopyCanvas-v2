@@ -21,6 +21,7 @@ export type DrawObject = {
     color: string;
     width: number;
     fill?: boolean;
+    erase?: boolean;
 };
 
 export type Page = {
@@ -38,8 +39,11 @@ export type ExportOptions = {
 };
 
 export type CanvasHandle = {
-    getDataUrl: () => string | null;
-    loadFromDataUrl: (dataUrl: string | null) => Promise<void>;
+    getDataUrl: () => { dataUrl: string | null; objects: string };
+    loadFromDataUrl: (
+        dataUrl: string | null,
+        objects?: string
+    ) => Promise<void>;
     exportImage: (options: ExportOptions) => Promise<void>;
     copyToClipboard: () => Promise<void>;
     resizeAndMaintain: (width: number, height: number) => Promise<void>;

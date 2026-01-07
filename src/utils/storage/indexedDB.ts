@@ -97,6 +97,7 @@ export class IndexedDBManager {
             const now = Date.now();
             const pageData: PageData = {
                 ...page,
+                objects: page.objects ?? undefined,
                 createdAt: existing?.createdAt ?? now,
                 updatedAt: now,
             };
@@ -398,6 +399,7 @@ export class IndexedDBManager {
                 id: 'page-1',
                 name: 'Page 1',
                 dataUrl,
+                objects: '[]', // Empty objects array for legacy data
             });
 
             // Save as first history entry

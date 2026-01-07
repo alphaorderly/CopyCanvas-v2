@@ -10,6 +10,16 @@ type UseCanvasDrawingOptions = {
     onCommit?: (dataUrl: string) => void;
     onPointerStateChange?: (drawing: boolean) => void;
     pressureSensitivity?: PressureSensitivityOptions;
+    strokeColor: string;
+    onStartStroke?: (
+        type: 'stroke',
+        point: { x: number; y: number },
+        color: string,
+        width: number,
+        erase?: boolean
+    ) => void;
+    onUpdateStroke?: (point: { x: number; y: number }) => void;
+    onCommitStroke?: () => void;
 };
 
 type UseCanvasDrawingReturn = {
@@ -32,6 +42,10 @@ export const useCanvasDrawing = (
         onCommit,
         onPointerStateChange,
         pressureSensitivity = { enabled: true, minScale: 0.3, maxScale: 1.0 },
+        strokeColor,
+        onStartStroke,
+        onUpdateStroke,
+        onCommitStroke,
     } = options;
 
     const drawingRef = useRef(false);
@@ -68,8 +82,13 @@ export const useCanvasDrawing = (
         drawingRef.current = true;
         lastPointRef.current = point;
         prevPointRef.current = null;
-        lastPressureRef.current = 0.5; // 중간값으로 초기화
+        lastPressureRef.current = 0.5; // Initial value
         pointCountRef.current = 0;
+
+        // Start stroke object for tracking (for both brush and eraser)
+        if (onStartStroke) {
+            onStartStroke('stroke', point, strokeColor, strokeWidth, isEraser);
+        }
 
         // Draw a single dot for the initial point with controlled size
         const ctx = ctxRef.current;
@@ -116,9 +135,8 @@ export const useCanvasDrawing = (
             );
             if (!point || !lastPointRef.current) continue;
 
-            // Apply pressure sensitivity for pen/stylus input (but not for eraser)
+            // Apply pressure sensitivity for pen/stylus input
             if (
-                !isEraser &&
                 pressureSensitivity.enabled &&
                 pointerEvt.pointerType === 'pen' &&
                 pointerEvt.pressure > 0
@@ -136,20 +154,6 @@ export const useCanvasDrawing = (
                     lastPressureRef.current * smoothingFactor +
                     rawPressure * (1 - smoothingFactor);
 
-                console.log('🖊️ Pen Pressure Data:', {
-                    pointerType: pointerEvt.pointerType,
-                    rawPressure,
-                    smoothedPressure,
-                    lastPressure: lastPressureRef.current,
-                    pointCount: pointCountRef.current,
-                    tangentialPressure: pointerEvt.tangentialPressure,
-                    tiltX: pointerEvt.tiltX,
-                    tiltY: pointerEvt.tiltY,
-                    baseStrokeWidth: strokeWidth,
-                    minScale: pressureSensitivity.minScale,
-                    maxScale: pressureSensitivity.maxScale,
-                });
-
                 const pressureWidth = calculatePressureWidth(
                     strokeWidth,
                     smoothedPressure,
@@ -157,21 +161,9 @@ export const useCanvasDrawing = (
                     pressureSensitivity.maxScale
                 );
 
-                console.log('✏️ Calculated Width:', {
-                    pressureWidth,
-                    smoothedPressure,
-                    rawPressure,
-                });
-
                 ctx.lineWidth = pressureWidth;
                 lastPressureRef.current = smoothedPressure;
             } else {
-                console.log('🖱️ Non-pressure Input:', {
-                    pointerType: pointerEvt.pointerType,
-                    pressure: pointerEvt.pressure,
-                    isEraser,
-                    pressureEnabled: pressureSensitivity.enabled,
-                });
                 // Use base stroke width for mouse/touch or eraser
                 ctx.lineWidth = strokeWidth;
             }
@@ -203,6 +195,11 @@ export const useCanvasDrawing = (
 
             prevPointRef.current = lastPointRef.current;
             lastPointRef.current = point;
+
+            // Update stroke object
+            if (onUpdateStroke) {
+                onUpdateStroke(point);
+            }
         }
     };
 
@@ -214,8 +211,14 @@ export const useCanvasDrawing = (
         lastPressureRef.current = 0.5;
         pointCountRef.current = 0;
         onPointerStateChange?.(false);
+
+        // Commit stroke object (for both brush and eraser)
+        if (onCommitStroke) {
+            onCommitStroke();
+        }
+
         commitSnapshot();
-    }, [onPointerStateChange, commitSnapshot]);
+    }, [onPointerStateChange, commitSnapshot, onCommitStroke]);
 
     // Global pointer up/cancel listeners
     useEffect(() => {

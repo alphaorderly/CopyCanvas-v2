@@ -10,7 +10,8 @@ export const useCanvasObjects = () => {
             type: DrawObject['type'],
             point: Point,
             color: string,
-            width: number
+            width: number,
+            erase: boolean = false
         ) => {
             const newObject: DrawObject = {
                 id: crypto.randomUUID(),
@@ -19,6 +20,7 @@ export const useCanvasObjects = () => {
                 color,
                 width,
                 fill: false,
+                erase,
             };
             currentObjectRef.current = newObject;
         },
@@ -40,9 +42,13 @@ export const useCanvasObjects = () => {
     }, []);
 
     const commitObject = useCallback(() => {
-        if (!currentObjectRef.current) return;
+        const objectToCommit = currentObjectRef.current;
+        if (!objectToCommit) return;
 
-        setObjects((prev) => [...prev, currentObjectRef.current!]);
+        setObjects((prev) => {
+            const newObjects = [...prev, objectToCommit];
+            return newObjects;
+        });
         currentObjectRef.current = null;
     }, []);
 
@@ -116,14 +122,19 @@ export const useCanvasObjects = () => {
 
     const renderObjects = useCallback(
         (ctx: CanvasRenderingContext2D, includePreview: boolean = false) => {
+            ctx.save();
             const objectsToRender =
                 includePreview && currentObjectRef.current
                     ? [...objects, currentObjectRef.current]
                     : objects;
 
             objectsToRender.forEach((obj) => {
-                ctx.strokeStyle = obj.color;
-                ctx.fillStyle = obj.color;
+                if (!obj) return;
+                ctx.globalCompositeOperation = obj.erase
+                    ? 'destination-out'
+                    : 'source-over';
+                ctx.strokeStyle = obj.erase ? '#000000' : obj.color;
+                ctx.fillStyle = obj.erase ? '#000000' : obj.color;
                 ctx.lineWidth = obj.width;
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
@@ -182,6 +193,7 @@ export const useCanvasObjects = () => {
                     ctx.stroke();
                 }
             });
+            ctx.restore();
         },
         [objects]
     );
@@ -192,6 +204,23 @@ export const useCanvasObjects = () => {
     }, []);
 
     const getCurrentObject = useCallback(() => currentObjectRef.current, []);
+
+    const serializeObjects = useCallback((): string => {
+        return JSON.stringify(objects);
+    }, [objects]);
+
+    const deserializeObjects = useCallback((json: string) => {
+        try {
+            const parsed = JSON.parse(json) as DrawObject[];
+            setObjects(parsed);
+        } catch {
+            setObjects([]);
+        }
+    }, []);
+
+    const setObjectsDirectly = useCallback((newObjects: DrawObject[]) => {
+        setObjects(newObjects);
+    }, []);
 
     return {
         objects,
@@ -204,6 +233,9 @@ export const useCanvasObjects = () => {
         renderObjects,
         clearObjects,
         getCurrentObject,
+        serializeObjects,
+        deserializeObjects,
+        setObjectsDirectly,
     };
 };
 
