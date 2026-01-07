@@ -22,6 +22,7 @@ export type DrawObject = {
     width: number;
     fill?: boolean;
     erase?: boolean;
+    pressureOptions?: PressureSensitivityOptions;
 };
 
 export type Page = {

@@ -1,5 +1,10 @@
 import { useCallback, useRef } from 'react';
-import { DrawObject, Point, ToolType } from '../../types/canvas';
+import {
+    DrawObject,
+    Point,
+    ToolType,
+    PressureSensitivityOptions,
+} from '../../types/canvas';
 
 type UseCanvasShapesOptions = {
     activeTool: ToolType;
@@ -11,7 +16,8 @@ type UseCanvasShapesOptions = {
         point: Point,
         color: string,
         width: number,
-        erase?: boolean
+        erase?: boolean,
+        pressureOptions?: PressureSensitivityOptions
     ) => void;
     updateObject: (point: Point) => void;
     commitObject: () => void;

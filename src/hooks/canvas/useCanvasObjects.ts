@@ -1,5 +1,10 @@
 import { useCallback, useRef, useState } from 'react';
-import type { DrawObject, Point } from '../../types/canvas';
+import type {
+    DrawObject,
+    Point,
+    PressureSensitivityOptions,
+} from '../../types/canvas';
+import { calculatePressureWidth } from '../../utils/canvas';
 
 export const useCanvasObjects = () => {
     const [objects, setObjects] = useState<DrawObject[]>([]);
@@ -11,7 +16,8 @@ export const useCanvasObjects = () => {
             point: Point,
             color: string,
             width: number,
-            erase: boolean = false
+            erase: boolean = false,
+            pressureOptions?: PressureSensitivityOptions
         ) => {
             const newObject: DrawObject = {
                 id: crypto.randomUUID(),
@@ -21,6 +27,7 @@ export const useCanvasObjects = () => {
                 width,
                 fill: false,
                 erase,
+                pressureOptions,
             };
             currentObjectRef.current = newObject;
         },
@@ -142,21 +149,69 @@ export const useCanvasObjects = () => {
                 if (obj.type === 'stroke') {
                     if (obj.points.length < 2) return;
 
-                    ctx.beginPath();
-                    ctx.moveTo(obj.points[0].x, obj.points[0].y);
+                    const options = obj.pressureOptions;
+                    const isPressureEnabled = options?.enabled;
+
+                    // If it's a simple dot
+                    if (obj.points.length === 1) {
+                        const p = obj.points[0];
+                        const pressure = p.pressure ?? 0.5;
+                        const w = isPressureEnabled
+                            ? calculatePressureWidth(
+                                  obj.width,
+                                  pressure,
+                                  options.minScale,
+                                  options.maxScale
+                              )
+                            : obj.width;
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, w / 2, 0, Math.PI * 2);
+                        ctx.fill();
+                        return;
+                    }
+
+                    // For continuous stroke
+                    let prevX = obj.points[0].x;
+                    let prevY = obj.points[0].y;
 
                     for (let i = 1; i < obj.points.length - 1; i++) {
-                        const xc = (obj.points[i].x + obj.points[i + 1].x) / 2;
-                        const yc = (obj.points[i].y + obj.points[i + 1].y) / 2;
-                        ctx.quadraticCurveTo(
-                            obj.points[i].x,
-                            obj.points[i].y,
-                            xc,
-                            yc
-                        );
+                        const curr = obj.points[i];
+                        const next = obj.points[i + 1];
+                        const xc = (curr.x + next.x) / 2;
+                        const yc = (curr.y + next.y) / 2;
+
+                        const pressure = curr.pressure ?? 0.5;
+                        ctx.lineWidth = isPressureEnabled
+                            ? calculatePressureWidth(
+                                  obj.width,
+                                  pressure,
+                                  options.minScale,
+                                  options.maxScale
+                              )
+                            : obj.width;
+
+                        ctx.beginPath();
+                        ctx.moveTo(prevX, prevY);
+                        ctx.quadraticCurveTo(curr.x, curr.y, xc, yc);
+                        ctx.stroke();
+
+                        prevX = xc;
+                        prevY = yc;
                     }
 
                     const last = obj.points[obj.points.length - 1];
+                    const lastPressure = last.pressure ?? 0.5;
+                    ctx.lineWidth = isPressureEnabled
+                        ? calculatePressureWidth(
+                              obj.width,
+                              lastPressure,
+                              options.minScale,
+                              options.maxScale
+                          )
+                        : obj.width;
+
+                    ctx.beginPath();
+                    ctx.moveTo(prevX, prevY);
                     ctx.lineTo(last.x, last.y);
                     ctx.stroke();
                 } else if (obj.type === 'line' && obj.points.length >= 2) {

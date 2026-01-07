@@ -13,12 +13,17 @@ type UseCanvasDrawingOptions = {
     strokeColor: string;
     onStartStroke?: (
         type: 'stroke',
-        point: { x: number; y: number },
+        point: { x: number; y: number; pressure?: number },
         color: string,
         width: number,
-        erase?: boolean
+        erase?: boolean,
+        pressureOptions?: PressureSensitivityOptions
     ) => void;
-    onUpdateStroke?: (point: { x: number; y: number }) => void;
+    onUpdateStroke?: (point: {
+        x: number;
+        y: number;
+        pressure?: number;
+    }) => void;
     onCommitStroke?: () => void;
 };
 
@@ -85,15 +90,23 @@ export const useCanvasDrawing = (
         lastPressureRef.current = 0.5; // Initial value
         pointCountRef.current = 0;
 
+        const isPen = event.pointerType === 'pen';
+        const initialPressure = isPen ? Math.max(event.pressure, 0.3) : 0.5;
+
         // Start stroke object for tracking (for both brush and eraser)
         if (onStartStroke) {
-            onStartStroke('stroke', point, strokeColor, strokeWidth, isEraser);
+            onStartStroke(
+                'stroke',
+                { ...point, pressure: initialPressure },
+                strokeColor,
+                strokeWidth,
+                isEraser,
+                pressureSensitivity
+            );
         }
 
         // Draw a single dot for the initial point with controlled size
         const ctx = ctxRef.current;
-        const isPen = event.pointerType === 'pen';
-        const initialPressure = isPen ? Math.max(event.pressure, 0.3) : 0.5;
         const initialWidth =
             isPen && pressureSensitivity.enabled
                 ? calculatePressureWidth(
@@ -135,6 +148,8 @@ export const useCanvasDrawing = (
             );
             if (!point || !lastPointRef.current) continue;
 
+            let smoothedPressure = 0.5;
+
             // Apply pressure sensitivity for pen/stylus input
             if (
                 pressureSensitivity.enabled &&
@@ -150,7 +165,7 @@ export const useCanvasDrawing = (
                 // 필압 스무딩: 이전 필압과 현재 필압의 가중 평균
                 // 처음 몇 포인트는 더 부드럽게 시작
                 const smoothingFactor = pointCountRef.current < 3 ? 0.7 : 0.3;
-                const smoothedPressure =
+                smoothedPressure =
                     lastPressureRef.current * smoothingFactor +
                     rawPressure * (1 - smoothingFactor);
 
@@ -166,6 +181,7 @@ export const useCanvasDrawing = (
             } else {
                 // Use base stroke width for mouse/touch or eraser
                 ctx.lineWidth = strokeWidth;
+                smoothedPressure = 0.5;
             }
 
             // Draw smooth curves using quadratic bezier
@@ -198,7 +214,7 @@ export const useCanvasDrawing = (
 
             // Update stroke object
             if (onUpdateStroke) {
-                onUpdateStroke(point);
+                onUpdateStroke({ ...point, pressure: smoothedPressure });
             }
         }
     };
