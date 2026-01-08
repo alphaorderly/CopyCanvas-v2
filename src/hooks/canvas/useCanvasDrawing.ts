@@ -7,7 +7,6 @@ type UseCanvasDrawingOptions = {
     ctxRef: React.MutableRefObject<CanvasRenderingContext2D | null>;
     strokeWidth: number;
     isEraser: boolean;
-    onCommit?: (dataUrl: string) => void;
     onPointerStateChange?: (drawing: boolean) => void;
     pressureSensitivity?: PressureSensitivityOptions;
     strokeColor: string;
@@ -44,7 +43,6 @@ export const useCanvasDrawing = (
         ctxRef,
         strokeWidth,
         isEraser,
-        onCommit,
         onPointerStateChange,
         pressureSensitivity = { enabled: true, minScale: 0.3, maxScale: 1.0 },
         strokeColor,
@@ -70,13 +68,6 @@ export const useCanvasDrawing = (
             y: (clientY - rect.top) * scaleY,
         };
     };
-
-    const commitSnapshot = useCallback(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const dataUrl = canvas.toDataURL('image/png');
-        onCommit?.(dataUrl);
-    }, [canvasRef, onCommit]);
 
     const handlePointerDown = (
         event: React.PointerEvent<HTMLCanvasElement>
@@ -232,9 +223,7 @@ export const useCanvasDrawing = (
         if (onCommitStroke) {
             onCommitStroke();
         }
-
-        commitSnapshot();
-    }, [onPointerStateChange, commitSnapshot, onCommitStroke]);
+    }, [onPointerStateChange, onCommitStroke]);
 
     // Global pointer up/cancel listeners
     useEffect(() => {

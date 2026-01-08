@@ -256,6 +256,7 @@ export class IndexedDBManager {
     static async saveHistory(
         pageId: string,
         dataUrl: string,
+        objects: string,
         index: number
     ): Promise<void> {
         try {
@@ -267,6 +268,7 @@ export class IndexedDBManager {
                 id: `${pageId}-${index}-${Date.now()}`,
                 pageId,
                 dataUrl,
+                objects,
                 timestamp: Date.now(),
                 index,
             };
@@ -403,7 +405,7 @@ export class IndexedDBManager {
             });
 
             // Save as first history entry
-            await this.saveHistory('page-1', dataUrl, 0);
+            await this.saveHistory('page-1', dataUrl, '[]', 0);
 
             // Clean up old localStorage key
             localStorage.removeItem('copycanvas:last');

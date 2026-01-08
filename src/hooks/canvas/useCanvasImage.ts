@@ -3,7 +3,6 @@ import { loadImage } from '../../utils/canvas';
 type UseCanvasImageOptions = {
     canvasRef: React.RefObject<HTMLCanvasElement | null>;
     ctxRef: React.MutableRefObject<CanvasRenderingContext2D | null>;
-    onCommit?: (dataUrl: string) => void;
 };
 
 type UseCanvasImageReturn = {
@@ -18,7 +17,7 @@ type UseCanvasImageReturn = {
 export const useCanvasImage = (
     options: UseCanvasImageOptions
 ): UseCanvasImageReturn => {
-    const { canvasRef, ctxRef, onCommit } = options;
+    const { canvasRef, ctxRef } = options;
 
     const getDataUrl = (): string | null => {
         return canvasRef.current?.toDataURL('image/png') ?? null;
@@ -42,10 +41,6 @@ export const useCanvasImage = (
         if (!canvas || !ctx) return;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        // Commit snapshot after clearing
-        const dataUrl = canvas.toDataURL('image/png');
-        onCommit?.(dataUrl);
     };
 
     return {

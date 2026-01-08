@@ -23,7 +23,6 @@ type UseCanvasShapesOptions = {
     commitObject: () => void;
     getCurrentObject: () => DrawObject | null;
     onPointerStateChange?: (drawing: boolean) => void;
-    commitSnapshot: () => void;
     overlayCanvasRef: React.RefObject<HTMLCanvasElement | null>;
     ctxRef: React.MutableRefObject<CanvasRenderingContext2D | null>;
 };
@@ -38,7 +37,6 @@ export const useCanvasShapes = ({
     commitObject,
     getCurrentObject,
     onPointerStateChange,
-    commitSnapshot,
     overlayCanvasRef,
     ctxRef,
 }: UseCanvasShapesOptions) => {
@@ -162,9 +160,6 @@ export const useCanvasShapes = ({
         drawingRef.current = false;
         shapeStartRef.current = null;
 
-        // Get the current object before committing
-        const currentObj = getCurrentObject();
-
         // Commit the object to the objects array
         commitObject();
 
@@ -180,57 +175,12 @@ export const useCanvasShapes = ({
             );
         }
 
-        // Draw the completed shape directly on the main canvas
-        const ctx = ctxRef.current;
-        if (ctx && currentObj && currentObj.points.length >= 2) {
-            ctx.strokeStyle = currentObj.color;
-            ctx.fillStyle = currentObj.color;
-            ctx.lineWidth = currentObj.width;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-
-            const [p1, p2] = currentObj.points;
-
-            if (currentObj.type === 'line') {
-                ctx.beginPath();
-                ctx.moveTo(p1.x, p1.y);
-                ctx.lineTo(p2.x, p2.y);
-                ctx.stroke();
-            } else if (currentObj.type === 'rectangle') {
-                const x = Math.min(p1.x, p2.x);
-                const y = Math.min(p1.y, p2.y);
-                const w = Math.abs(p2.x - p1.x);
-                const h = Math.abs(p2.y - p1.y);
-                ctx.beginPath();
-                ctx.rect(x, y, w, h);
-                if (currentObj.fill) {
-                    ctx.fill();
-                }
-                ctx.stroke();
-            } else if (currentObj.type === 'circle') {
-                const radius = Math.sqrt(
-                    Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2)
-                );
-                ctx.beginPath();
-                ctx.arc(p1.x, p1.y, radius, 0, Math.PI * 2);
-                if (currentObj.fill) {
-                    ctx.fill();
-                }
-                ctx.stroke();
-            }
-
-            commitSnapshot();
-        }
-
         onPointerStateChange?.(false);
     }, [
         drawingRef,
         isShape,
-        getCurrentObject,
         commitObject,
         overlayCanvasRef,
-        ctxRef,
-        commitSnapshot,
         onPointerStateChange,
     ]);
 

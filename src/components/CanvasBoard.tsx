@@ -111,10 +111,11 @@ const CanvasBoard = forwardRef<CanvasHandle, Props>((props, ref) => {
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         renderObjects(ctx, false);
 
-        // We only commit snapshot if this wasn't a mid-drawing update
-        // But objects only change on commit, cancellation, or delete.
-        // So it is safe to commit snapshot here to keep persisted PNG in sync.
-        commitSnapshot();
+        // Only commit snapshot when not actively drawing (e.g. at the end of a stroke)
+        // or when objects are changed programmatically (undo/redo).
+        if (!drawingRef.current) {
+            commitSnapshot();
+        }
     }, [objects, renderObjects, commitSnapshot, ctxRef]);
 
     // Shape handling
@@ -132,7 +133,6 @@ const CanvasBoard = forwardRef<CanvasHandle, Props>((props, ref) => {
         commitObject,
         getCurrentObject,
         onPointerStateChange,
-        commitSnapshot,
         overlayCanvasRef,
         ctxRef,
     });
@@ -179,7 +179,6 @@ const CanvasBoard = forwardRef<CanvasHandle, Props>((props, ref) => {
             ctxRef,
             strokeWidth,
             isEraser,
-            onCommit,
             onPointerStateChange,
             pressureSensitivity,
             strokeColor,
@@ -215,8 +214,10 @@ const CanvasBoard = forwardRef<CanvasHandle, Props>((props, ref) => {
 
         if (['line', 'rectangle', 'circle'].includes(activeTool)) {
             handlePointerUpShape();
-        } else if (activeTool !== 'eraser-object') {
-            handlePointerUp(); // This handles commitSnapshot
+        } else if (activeTool === 'eraser-object') {
+            commitSnapshot();
+        } else {
+            handlePointerUp(); // This handles commitment for brush/eraser-normal
         }
     };
 
@@ -228,7 +229,6 @@ const CanvasBoard = forwardRef<CanvasHandle, Props>((props, ref) => {
     } = useCanvasImage({
         canvasRef,
         ctxRef,
-        onCommit,
     });
 
     // Handle export operations

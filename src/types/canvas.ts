@@ -59,3 +59,8 @@ export type PressureSensitivityOptions = {
     /** Maximum width scale (0.0 to 1.0, default: 1.0) */
     maxScale?: number;
 };
+
+export type CanvasSnapshot = {
+    dataUrl: string | null;
+    objects: string;
+};

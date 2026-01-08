@@ -65,6 +65,7 @@ export interface HistoryEntry {
     id: string;
     pageId: string;
     dataUrl: string;
+    objects: string;
     timestamp: number;
     index: number;
 }
